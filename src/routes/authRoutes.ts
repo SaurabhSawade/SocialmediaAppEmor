@@ -1,5 +1,5 @@
 import express, { Request, Response } from "express";
-import { registerWithOTP, login, logout, refreshAccessToken } from "../controllers/authController";
+import { signup, login, logout, refreshAccessToken ,verifySignupOTP, resendSignupOTP} from "../controllers/authController";
 import { getAllUsers } from "../models/userModel"; 
 import {
   registerValidation,
@@ -11,11 +11,18 @@ import { sendOTP } from "../utils/sendOtp";
 
 // const router = express.Router();
 const router = express.Router();
-console.log("Auth routes loaded");
-router.post("/register", registerValidation, validate, registerWithOTP);
 
-router.post("/send-otp", sendOTP);
-// router.post("/register-otp", registerWithOTP);
+
+
+// STEP 1 Request OTP
+router.post("/signup", registerValidation, validate, signup);
+
+// STEP 2 Verify OTP & create user
+router.post("/verify-otp", verifySignupOTP);
+
+// STEP 3 Resend OTP
+router.post("/resend-otp", resendSignupOTP);
+
 
 router.post("/login", loginValidation, validate, login);
 
@@ -42,6 +49,7 @@ router.get("/users", async (req: Request, res: Response) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
+
 
 // module.exports = router;
 export default router;

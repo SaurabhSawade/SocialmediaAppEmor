@@ -1,16 +1,16 @@
-// middleware/errorHandler.ts
 import { Request, Response, NextFunction } from "express";
 import { ApiError } from "../errors/ApiError";
 
 export const errorHandler = (
-  err: Error | ApiError,
+  err: unknown, // ✅ better than Error | ApiError
   req: Request,
   res: Response,
   next: NextFunction
-) => {
-  console.error(err); // You can integrate a logging system here
+): Response => {
+  console.error("🔥 Error:", err);
 
-  // If error is an instance of ApiError, use its status code
+  
+  // ✅ Handle custom ApiError
   if (err instanceof ApiError) {
     return res.status(err.statusCode).json({
       success: false,
@@ -18,8 +18,19 @@ export const errorHandler = (
     });
   }
 
-  // Default to 500 Internal Server Error
-  res.status(500).json({
+  // ✅ Handle normal JS Error
+  if (err instanceof Error) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+      ...(process.env.NODE_ENV === "development" && {
+        stack: err.stack,
+      }),
+    });
+  }
+
+  // ✅ Fallback (unknown error)
+  return res.status(500).json({
     success: false,
     message: "Internal Server Error",
   });

@@ -27,6 +27,7 @@
   "dependencies": {
     "@prisma/adapter-mariadb": "^7.5.0",
     "@prisma/client": "^6.19.2",
+    "@types/helmet": "^0.0.48",
     "@types/nodemailer": "^7.0.11",
     "@types/otp-generator": "^4.0.2",
     "bcrypt": "^6.0.0",

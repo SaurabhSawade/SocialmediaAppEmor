@@ -4,77 +4,51 @@ import { Request, Response } from "express";
 import * as UserModel from "../models/userModel";
 import { prisma } from "../prisma";
 import { sendEmail } from "../utils/sendEmail";
-/**
- * call when post req will hit for register routes
- * @param req - Request object
- * @param res - Response object
- * @async
- */
+import { generateOTP } from "../utils/createOtp";
+import { log } from "console";
+const OTP_EXPIRY_MINUTES = Number(process.env.OTP_EXPIRY_MINUTES) || 5 ;
 
-export const registerWithOTP = async (req: Request, res: Response) => {
-  const { name, phone, email, password, otp } = req.body;
 
-  if (!name || !password || (!phone && !email)) {
-    return res.status(400).json({ success: false, message: "Name, password and phone/email required" });
-  }
-  
-  // Find OTP
-  const otpEntry = await prisma.otp_verifications.findFirst({
-    where: {
-      otp,
-      verified: false,
-      expiresAt: { gte: new Date() },
-      OR: [{ phone: phone || null }, { email: email || null }],
-    },
-    orderBy: { createdAt: "desc" },
-  });
 
-  if (!otpEntry) return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
-
-  const hashedPassword = await bcrypt.hash(password, 10);
-
+export const signup = async (req: Request, res: Response) => {
   try {
-    const user = await prisma.users.create({
+    const { name, email, phone, password } = req.body;
+    let data={}
+    const existingUser = await prisma.users.findFirst({
+      where: { OR: [{ email }, { phone }] },
+    });
+
+    if (existingUser) {
+      return res.status(400).json({ message: "User already exists" });
+    }
+
+    const otp = generateOTP();
+    const hashedOtp = await bcrypt.hash(otp, 10);
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const otpExpiryMinutes = Number(process.env.OTP_EXPIRY_MINUTES) || 5;
+    
+    await prisma.pendingUser.create({
       data: {
         name,
-        password: hashedPassword,
-        phone: phone || null,
         email: email || null,
-        is_verified: true,
+        phone: phone || null,
+        password: hashedPassword,
+        otp: hashedOtp,
+        expiresAt: new Date(Date.now() + otpExpiryMinutes * 60 * 1000),
       },
     });
 
-    await prisma.otp_verifications.update({
-      where: { id: otpEntry.id },
-      data: { verified: true },
-    });
-
-    // Send success email if user registered via email
     if (email) {
-      await sendEmail(email, "Registration Successful", `Hello ${name},\n\nYour registration was successful!`);
+      await sendEmail(email, "OTP Verification", `Your OTP is ${otp}`);
     }
 
-    res.status(201).json({
-      success: true,
-      message: "User registered successfully",
-      user: { id: user.id, name: user.name, email: user.email, phone: user.phone },
-    });
-  } catch (err: any) {
-    if (err.code === "P2002") {
-      return res.status(400).json({ success: false, message: "Email or phone already registered" });
-    }
+   return res.json({ message: "OTP sent successfully" });
+  } catch (err) {
     console.error(err);
-    res.status(500).json({ success: false, message: "Server error" });
+    res.status(500).json({ message: "Error sending OTP" });
   }
 };
-
-
-/**
- * call when get req will hit for login routes
- * @param req - Request object
- * @param res - Response object
- * @async
- */
 
 export const login = async (req: Request, res: Response) => {
   try {
@@ -91,16 +65,19 @@ export const login = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Invalid email or password" });
     }
 
+    const accessExpiry = process.env.JWT_ACCESS_EXPIRY || "60m";
+    const refreshExpiry = process.env.JWT_REFRESH_EXPIRY || "7d";
+
     const accessToken = jwt.sign(
       { id: user.id },
       process.env.JWT_SECRET as string,
-      { expiresIn: "60m" }
+      { expiresIn: accessExpiry }
     );
 
     const refreshToken = jwt.sign(
       { id: user.id },
       process.env.JWT_REFRESH_SECRET as string,
-      { expiresIn: "7d" }
+      { expiresIn: refreshExpiry }
     );
 
     await UserModel.updateRefreshToken(user.id, refreshToken);
@@ -118,26 +95,21 @@ export const login = async (req: Request, res: Response) => {
   }
 };
 
-
-
 export const logout = async (req: Request, res: Response) => {
   try {
     const userId = req.user!.id;
 
     await UserModel.updateRefreshToken(userId, null);
 
-    res.json({ message: "Logged out successfully" });
+    return res.json({ message: "Logged out successfully" });
   } catch (err) {
     console.error("Logout error:", err);
-    res.status(500).json({ message: "Server error" });
+    return res.status(500).json({ message: "Server error" });
   }
 };
 
-
 export const refreshAccessToken = async (req: Request, res: Response) => {
-  // const { refreshToken } = req.body;
   const { refreshToken } = req.body;
-
 
   if (!refreshToken) {
     return res.status(401).json({ message: "No refresh token" });
@@ -155,14 +127,112 @@ export const refreshAccessToken = async (req: Request, res: Response) => {
       return res.status(403).json({ message: "Invalid refresh token" });
     }
 
+    const accessExpiry = process.env.JWT_ACCESS_EXPIRY || "60m";
+
     const newAccessToken = jwt.sign(
       { id: user.id },
       process.env.JWT_SECRET as string,
-      { expiresIn: "60m" }
+      { expiresIn: accessExpiry }
     );
 
     res.json({ accessToken: newAccessToken });
   } catch (err) {
     return res.status(403).json({ message: "Invalid token" });
+  }
+};
+
+export const verifySignupOTP = async (req: Request, res: Response) => {
+  try {
+    const { email, otp } = req.body;
+  console.log("Verifying OTP for email:", email);
+    const pendingUser = await prisma.pendingUser.findFirst({
+      where: {
+        email,
+        expiresAt: { gte: new Date() },
+      },
+    });
+    console.log("Found pending user:", pendingUser);
+    if (!pendingUser) {
+      return res.status(400).json({ message: "Invalid or expired OTP" });
+    }
+
+    const isOtpValid = await bcrypt.compare(otp, pendingUser.otp);
+
+    if (!isOtpValid) {
+      return res.status(400).json({ message: "Invalid OTP" });
+    }
+
+    const user = await prisma.users.create({
+      data: {
+        name: pendingUser.name,
+        email: pendingUser.email,
+        phone: pendingUser.phone,
+        password: pendingUser.password,
+        is_verified: true,
+      },
+    });
+
+    await prisma.pendingUser.delete({
+      where: { id: pendingUser.id },
+    });
+
+    return res.status(201).json({
+      message: "User verified and created successfully",
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+export const resendSignupOTP = async (req: Request, res: Response) => {
+  try {
+    const { email,mobile } = req.body;
+
+    const pendingUser = await prisma.pendingUser.findFirst({
+      where: { email },
+
+    });
+
+    if (!pendingUser) {
+      return res.status(400).json({ message: "No pending signup found" });
+    }
+
+    const now = Date.now();
+    const lastSent = new Date(pendingUser.createdAt).getTime();
+
+    const cooldownSec = Number(process.env.RESEND_OTP_COOLDOWN) || 30;
+
+    if ((now - lastSent) / 1000 < cooldownSec) {
+      return res.status(429).json({
+        message: `Please wait ${cooldownSec} seconds before resending OTP`,
+      });
+    }
+
+    const otp = generateOTP();
+    const hashedOtp = await bcrypt.hash(otp, 10);
+
+    const otpExpiryMinutes = Number(process.env.OTP_EXPIRY_MINUTES) || 5;
+
+    await prisma.pendingUser.update({
+      where: { id: pendingUser.id },
+      data: {
+        otp: hashedOtp,
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + otpExpiryMinutes * 60 * 1000),
+      },
+    });
+
+    await sendEmail(email, "Resend OTP", `Your new OTP is ${otp}`);
+
+    return res.json({ message: "OTP resent successfully" });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Error resending OTP" });
   }
 };

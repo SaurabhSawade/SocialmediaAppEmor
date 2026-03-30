@@ -1,26 +1,17 @@
-// const express = require("express");
 import express, { Application } from "express";
 import path from "path";
 import { RequestHandler } from "express";
-
-
-// const cors = require("cors");
 import cors from "cors";
-
-// const { swaggerUi, swaggerSpec } = require("./swagger");
 import { swaggerUi, swaggerSpec } from "./swagger";
-
-//routes
-// const authRoutes = require("./routes/authRoutes");
-import authRoutes from "./routes/authRoutes";
+import { errorHandler } from "./middleware/errorHandler";
+import helmet from "helmet";
 
 // const messageRoutes = require("./routes/messageRoutes");
+import authRoutes from "./routes/authRoutes";
 import messageRoutes from "./routes/messageRoutes";
-
 import postRoutes from "./routes/postRoutes"; 
+import viewRoutes from "./routes/viewRoutes";
 
-import { errorHandler } from "./middleware/errorHandler";
-import { ApiError } from "./errors/ApiError";
 
 
 // const app = express();
@@ -46,9 +37,7 @@ app.use(express.static(path.join(__dirname, "../public")));
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "../views")); 
 
-import viewRoutes from "./routes/viewRoutes";
 app.use("/", viewRoutes);
-
 app.use("/api/auth", authRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/posts", postRoutes);

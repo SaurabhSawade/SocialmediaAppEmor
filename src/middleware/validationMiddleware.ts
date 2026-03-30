@@ -10,7 +10,8 @@ import { Request, Response, NextFunction } from "express";
 
 // Validation rules for register
 // const registerValidation = [
-const registerValidation: ValidationChain[] = [
+
+const registerValidation = [
   body("name")
     .trim()
     .notEmpty()
@@ -21,20 +22,30 @@ const registerValidation: ValidationChain[] = [
     .withMessage("Name can only contain letters and spaces"),
 
   body("email")
+    .optional({ nullable: true })
     .trim()
-    .notEmpty()
-    .withMessage("Email is required")
     .isEmail()
     .withMessage("Please provide a valid email")
     .normalizeEmail(),
+
+  body("phone")
+    .optional({ nullable: true })
+    .isMobilePhone("any")
+    .withMessage("Please provide a valid phone number"),
 
   body("password")
     .notEmpty()
     .withMessage("Password is required")
     .isLength({ min: 6 })
     .withMessage("Password must be at least 6 characters long"),
-];
 
+  body().custom((value, { req }) => {
+    if (!req.body.email && !req.body.phone) {
+      throw new Error("Either email or phone is required");
+    }
+    return true;
+  }),
+];
 /**
  * Validation rules for user login.
  * Validates email and password fields.
